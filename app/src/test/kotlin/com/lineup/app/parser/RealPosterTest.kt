@@ -10,6 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -67,5 +68,25 @@ class RealPosterTest {
         // angle tried, so no time is offered rather than a wrong one.
         assertNull(draft.startTime)
         assertNull(draft.endTime)
+    }
+
+    /**
+     * A screenshot of an email newsletter containing a flyer. The chapter badge reads
+     * "ASME / AT GEORGIA TECH / STUDENT SECTION", which the "at <place>" rule used to
+     * capture as the venue, beating the real one under the date.
+     */
+    @Test
+    fun `an email newsletter flyer with a decoy at-phrase`() {
+        val draft = parser.parse(
+            ParseInput(fixture("poster_email_career_fair.tsv", 1080, 2424), now),
+        )
+
+        assertEquals(LocalDate.of(2026, 9, 14), draft.date)
+        assertEquals(LocalTime.of(9, 0), draft.startTime)
+        assertEquals(LocalTime.of(15, 0), draft.endTime)
+
+        // The venue under the date, not the "AT GEORGIA TECH" in the society's badge.
+        assertEquals("GEORGIA TECH EXHIBITION HALL", draft.location)
+        assertEquals("Fall Career Fair", draft.title)
     }
 }

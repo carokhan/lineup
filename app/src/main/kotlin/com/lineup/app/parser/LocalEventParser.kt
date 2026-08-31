@@ -288,6 +288,13 @@ class LocalEventParser : EventParser {
     )
     private val atPrefix = Regex("""(?:^|\s)(?:at|@)\s+(\S.*)$""", RegexOption.IGNORE_CASE)
 
+    /**
+     * Scores every plausible venue instead of taking the first rule that fires.
+     *
+     * Tier ordering was the bug: an ASME flyer carries "ASME / AT GEORGIA TECH / STUDENT
+     * SECTION" as a chapter badge, so the "at <place>" rule captured "GEORGIA TECH" and beat
+     * the real venue line, "GEORGIA TECH EXHIBITION HALL", sitting under the date.
+     */
     private fun pickLocation(
         candidates: List<Candidate>,
         dateLines: Set<Int>,
@@ -296,52 +303,80 @@ class LocalEventParser : EventParser {
     ): Scored? {
         fun disqualified(text: String) = isMetadata(text) || Patterns.isBareAppName(text)
 
-        // 1. An explicit label is as good as it gets.
-        candidates.forEach { c ->
-            explicitPrefix.find(c.text)?.let { m ->
-                val value = m.groupValues[1].trim()
+        val anchors = dateLines + timeLines
+        fun nearDateTime(index: Int) =
+            anchors.any { kotlin.math.abs(index - it) <= FALLBACK_REACH }
+
+        val found = mutableListOf<ScoredLocation>()
+
+        candidates.forEach { candidate ->
+            if (candidate.index in titleIndices || disqualified(candidate.text)) return@forEach
+            val near = nearDateTime(candidate.index)
+
+            // An explicit label is a statement of fact and outranks everything.
+            explicitPrefix.find(candidate.text)?.let { match ->
+                val value = match.groupValues[1].trim()
                 if (value.isNotBlank() && !disqualified(value)) {
-                    return Scored(c.index, value, Confidence.HIGH)
+                    found += ScoredLocation(candidate.index, value, EXPLICIT_SCORE, Confidence.HIGH)
+                    return@forEach
                 }
             }
-        }
 
-        // 2. "at <place>" / "@ <place>", as long as the tail is not a time or a handle.
-        candidates.forEach { c ->
-            if (c.index in titleIndices || disqualified(c.text)) return@forEach
-            atPrefix.find(c.text)?.let { m ->
-                val value = m.groupValues[1].trim().trimEnd('.', ',')
+            fun consider(text: String, atPrefixed: Boolean) {
+                if (disqualified(text)) return
+                val named = Patterns.hasVenueWord(text)
+                val room = Patterns.ROOM_NUMBER.matches(text)
+                val evidence = named || room
+                // Without a place word or a room number, a line has to both read like a
+                // place and sit with the date and time to count at all.
+                if (!evidence && !(near && Patterns.looksLikePlace(text))) return
+
+                var score = 0
+                if (evidence) score += VENUE_EVIDENCE_SCORE
+                if (near) score += PROXIMITY_SCORE
+                if (atPrefixed) score += AT_PREFIX_SCORE
+
+                val confidence = when {
+                    evidence -> Confidence.MEDIUM
+                    atPrefixed -> Confidence.MEDIUM
+                    else -> Confidence.LOW
+                }
+                found += ScoredLocation(candidate.index, repairRoomNumber(text), score, confidence)
+            }
+
+            // "at <place>" / "@ <place>", as long as the tail is not a time or a handle.
+            atPrefix.find(candidate.text)?.let { match ->
+                val value = match.groupValues[1].trim().trimEnd('.', ',')
                 val plausible = value.length >= 3 &&
                     value.any { it.isLetter() } &&
                     !value.first().isDigit() &&
-                    c.index !in dateLines &&
-                    c.index !in timeLines &&
-                    !disqualified(value)
-                if (plausible) return Scored(c.index, value, Confidence.MEDIUM)
+                    candidate.index !in dateLines &&
+                    candidate.index !in timeLines
+                if (plausible) consider(value, atPrefixed = true)
+            }
+
+            // A date or time line is never the venue, and "August 29" happens to match the
+            // "<word> <number>" room shape, so this guard is load-bearing.
+            val isDateOrTime = candidate.index in dateLines || candidate.index in timeLines
+            if (!isDateOrTime && TextUtils.wordCount(candidate.text) <= MAX_LOCATION_WORDS) {
+                consider(candidate.text, atPrefixed = false)
             }
         }
 
-        val remaining = candidates.filter {
-            it.index !in titleIndices &&
-                it.index !in dateLines &&
-                it.index !in timeLines &&
-                !disqualified(it.text) &&
-                it.text.length >= 3 &&
-                TextUtils.wordCount(it.text) <= 8
-        }
-
-        // 3. A recognisable venue word or a "<Building> <room>" shape.
-        remaining.firstOrNull { Patterns.hasVenueWord(it.text) || Patterns.ROOM_NUMBER.matches(it.text) }
-            ?.let { return Scored(it.index, repairRoomNumber(it.text), Confidence.MEDIUM) }
-
-        // 4. Last resort: a line that reads like a place, sitting just under the date and
-        //    time. Both halves matter - without the proximity rule this reaches down into a
-        //    screenshot's comments, and without the validation it accepts anything short.
-        val anchor = (dateLines + timeLines).maxOrNull() ?: return null
-        return remaining
-            .lastOrNull { it.index in (anchor + 1)..(anchor + FALLBACK_REACH) && Patterns.looksLikePlace(it.text) }
-            ?.let { Scored(it.index, repairRoomNumber(it.text), Confidence.LOW) }
+        // Best score wins; ties go to whichever sits closest to the date and time.
+        val best = found.maxWithOrNull(
+            compareBy<ScoredLocation> { it.score }
+                .thenByDescending { anchors.minOfOrNull { a -> kotlin.math.abs(it.index - a) } ?: Int.MAX_VALUE },
+        ) ?: return null
+        return Scored(best.index, best.text, best.confidence)
     }
+
+    private data class ScoredLocation(
+        val index: Int,
+        val text: String,
+        val score: Int,
+        val confidence: Confidence,
+    )
 
     private companion object {
         /** A bare social handle on its own line, as screenshots of posts always carry. */
@@ -350,8 +385,14 @@ class LocalEventParser : EventParser {
         /** Letters that are never sensible room prefixes but are read for digits constantly. */
         val DIGIT_LOOKALIKES = mapOf('Z' to '2', 'z' to '2', 'I' to '1', 'l' to '1', 'O' to '0', 'o' to '0')
 
-        /** How far below the date/time a venue may sit before it is just other text. */
+        /** How far from the date/time a venue may sit before it is just other text. */
         const val FALLBACK_REACH = 3
+
+        const val EXPLICIT_SCORE = 10
+        const val VENUE_EVIDENCE_SCORE = 4
+        const val PROXIMITY_SCORE = 3
+        const val AT_PREFIX_SCORE = 2
+        const val MAX_LOCATION_WORDS = 8
 
         const val MAX_TITLE_LINES = 3
         const val MAX_TITLE_WORDS = 12
