@@ -38,7 +38,9 @@ class LocalEventParser : EventParser {
         val timeLines = times.timeLineIndices
 
         val headline = pickTitle(candidates, dateLines, timeLines)
-        val title = headline?.let { it.copy(text = composeTitle(candidates, it)) }
+        val title = headline?.let {
+            it.copy(text = composeTitle(candidates, it, dateLines, timeLines))
+        }
         val location = pickLocation(candidates, dateLines, timeLines, title?.indices.orEmpty())
 
         val description = times.doors?.let { doors ->
@@ -146,6 +148,8 @@ class LocalEventParser : EventParser {
             if (text.trimEnd().endsWith("?")) score -= 1.5
             // "Kendeda 230" is where the event is, never what it is called.
             if (Patterns.ROOM_NUMBER.matches(text)) score -= 3.0
+            // "Young Democratic Socialists of America" is who is holding it, not what it is.
+            if (Patterns.organisationAcronym(text) != null) score -= 3.0
 
             scores[candidate.index] = score
         }
@@ -308,8 +312,14 @@ class LocalEventParser : EventParser {
      * Turns the raw headline into something worth reading in an agenda, and prefixes the
      * organiser when the poster identifies one.
      */
-    private fun composeTitle(candidates: List<Candidate>, headline: Scored): String {
+    private fun composeTitle(
+        candidates: List<Candidate>,
+        headline: Scored,
+        dateLines: Set<Int>,
+        timeLines: Set<Int>,
+    ): String {
         val organiser = findOrganiser(candidates, headline.indices)
+            ?: findOrganisationAcronym(candidates, headline.indices, dateLines, timeLines)
         val name = TextUtils.formatEventName(
             headline.text,
             preserve = organiser?.split(" ")?.filter { it.isNotBlank() }?.toSet().orEmpty(),
@@ -342,6 +352,24 @@ class LocalEventParser : EventParser {
                 c.text != c.text.lowercase() &&
                 TextUtils.squash(c.text) in handles
         }?.text?.trim()
+    }
+
+    /**
+     * The host's acronym, taken from a spelled-out organisation name on the poster.
+     *
+     * Flyers put the full name in a banner and the acronym in artwork the recogniser often
+     * cannot read - the "YDSA" on this poster is huge letterforms that came back as nothing,
+     * while "Young Democratic Socialists of America" read cleanly.
+     */
+    private fun findOrganisationAcronym(
+        candidates: List<Candidate>,
+        titleIndices: Set<Int>,
+        dateLines: Set<Int>,
+        timeLines: Set<Int>,
+    ): String? = candidates.firstNotNullOfOrNull { c ->
+        if (c.index in titleIndices || c.index in dateLines || c.index in timeLines) return@firstNotNullOfOrNull null
+        if (isMetadata(c.text)) return@firstNotNullOfOrNull null
+        Patterns.organisationAcronym(c.text)
     }
 
     // ------------------------------------------------------------- location

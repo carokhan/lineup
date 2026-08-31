@@ -108,7 +108,9 @@ class RealPosterTest {
         assertEquals(LocalTime.of(18, 30), draft.startTime)
         assertEquals("GATECH KLAUS 1456", draft.location)
         assertEquals(LocalDate.of(2026, 9, 3), draft.date)
-        assertEquals("Kick-off Meeting", draft.title)
+        // "Kick-off Meeting" alone is ambiguous. The huge "YDSA" letterforms were not
+        // recognised at all, but the banner spelling it out was, so the acronym is derived.
+        assertEquals("YDSA Kick-off Meeting", draft.title)
     }
 
     /** Without a clock in it, the top of the image is just the top of the image. */

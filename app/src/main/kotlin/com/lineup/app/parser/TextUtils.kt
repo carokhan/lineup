@@ -54,6 +54,34 @@ internal object Patterns {
         "including", "presented", "sponsored", "hosted", "powered",
     )
 
+    /**
+     * Words that name an organising body. Deliberately narrow: "school", "department" and
+     * "students" appear all over flyers in contexts that are not the host's name, e.g. the
+     * "George W. Woodruff School" credit on a careers flyer.
+     */
+    private val ORGANISATION_WORDS = setOf(
+        "socialists", "society", "association", "club", "union", "chapter", "council",
+        "fraternity", "sorority", "federation", "alliance", "coalition", "guild", "league",
+    )
+
+    /**
+     * The acronym a formal organisation name stands for, when the line clearly is one.
+     * "Young Democratic Socialists of America" -> "YDSA", which is how anyone would
+     * actually refer to it in a calendar.
+     */
+    fun organisationAcronym(text: String): String? {
+        val words = text.trim().split(Regex("""\s+""")).filter { it.any(Char::isLetter) }
+        if (words.size < 3) return null
+        if (words.none { it.lowercase().trim('.', ',') in ORGANISATION_WORDS }) return null
+
+        // Short words like "of" and "the" are not part of the acronym.
+        val initials = words
+            .filter { it.trim('.', ',').length > 2 }
+            .mapNotNull { word -> word.firstOrNull { it.isLetter() }?.uppercaseChar() }
+        if (initials.size !in 3..6) return null
+        return initials.joinToString("")
+    }
+
     fun isBareAppName(s: String): Boolean = s.trim().trim('.', '!', '?').lowercase() in BARE_APP_NAMES
 
     /**
@@ -172,9 +200,18 @@ internal object TextUtils {
     /** Letters and digits only, lowercased: "YDSA GT" and "ydsagt" become the same key. */
     fun squash(s: String): String = s.filter { it.isLetterOrDigit() }.lowercase()
 
+    /** Short words that are words, not initialisms, however a poster capitalises them. */
+    private val SHORT_WORDS = setOf(
+        "a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "for", "off", "out",
+        "up", "our", "all", "new", "one", "two", "day", "eve", "fun", "big", "end", "not",
+        "you", "get", "see", "now", "let", "is", "it", "we", "be", "by", "vs", "no", "so",
+    )
+
     private fun isAcronym(word: String): Boolean {
         val letters = word.filter { it.isLetter() }
-        return letters.isNotEmpty() && letters.length <= 3 && letters.all { it.isUpperCase() }
+        if (letters.isEmpty() || letters.length > 3) return false
+        if (letters.all { it.isUpperCase() }.not()) return false
+        return letters.lowercase() !in SHORT_WORDS
     }
 
     /**

@@ -472,6 +472,36 @@ class LocalEventParserTest {
     }
 
     @Test
+    fun `a spelled out organisation name becomes an acronym prefix`() {
+        val draft = parse(
+            """
+            YOUNG DEMOCRATIC SOCIALISTS OF AMERICA
+            KICK OFF MEETING
+            September 3
+            6:30 PM
+            """
+        )
+        assertEquals("YDSA Kick Off Meeting", draft.title)
+    }
+
+    @Test
+    fun `an ordinary phrase is not turned into an acronym`() {
+        // No organisation word, so nothing to derive a host from.
+        assertEquals("Free Pizza Night", parse("FREE PIZZA NIGHT\nSeptember 3\n6 PM").title)
+        // "School" and "students" are too common on flyers to imply the host's name.
+        assertEquals(
+            "Career Fair",
+            parse("George W. Woodruff School\nCAREER FAIR\nSeptember 3\n6 PM").title,
+        )
+    }
+
+    @Test
+    fun `a sponsor credit never supplies the organisation`() {
+        val draft = parse("PRESENTED BY THE ROBOTICS CLUB\nROBOT RUMBLE\nSeptember 3\n6 PM")
+        assertEquals("Robot Rumble", draft.title)
+    }
+
+    @Test
     fun `an unmatched handle never becomes a prefix`() {
         val draft = parse(
             """
