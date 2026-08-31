@@ -89,4 +89,51 @@ class RealPosterTest {
         assertEquals("GEORGIA TECH EXHIBITION HALL", draft.location)
         assertEquals("Fall Career Fair", draft.title)
     }
+
+    /**
+     * A screenshot of a flyer whose only competing text is Android's own status bar. The
+     * clock became the start time and the battery indicators became the venue, and because
+     * every field then held something, the model fallback never ran.
+     *
+     * The headline is set as rotated stickers: "KICK-" above "OFF", with "MEETING" beside
+     * rather than below.
+     */
+    @Test
+    fun `a screenshot whose only competition is the status bar`() {
+        val draft = parser.parse(
+            ParseInput(fixture("poster_ydsa_kickoff.tsv", 1080, 2424), now),
+        )
+
+        // 15:53 is the phone's clock and "Co ll 39" the battery, neither of them the event.
+        assertEquals(LocalTime.of(18, 30), draft.startTime)
+        assertEquals("GATECH KLAUS 1456", draft.location)
+        assertEquals(LocalDate.of(2026, 9, 3), draft.date)
+        assertEquals("Kick-off Meeting", draft.title)
+    }
+
+    /** Without a clock in it, the top of the image is just the top of the image. */
+    @Test
+    fun `text at the top of a poster photo is not mistaken for a status bar`() {
+        val ocr = OcrText(
+            raw = "SPRING GALA\nApril 11\n8 PM\nThe Eastern",
+            blocks = listOf(
+                block("SPRING GALA", 40, 30, 700, 120),
+                block("April 11", 40, 400, 380, 440),
+                block("8 PM", 40, 470, 220, 510),
+                block("The Eastern", 40, 540, 420, 580),
+            ),
+            imageWidth = 800,
+            imageHeight = 1000,
+        )
+        val draft = parser.parse(ParseInput(ocr, now))
+        assertEquals("Spring Gala", draft.title)
+        assertEquals(LocalTime.of(20, 0), draft.startTime)
+    }
+
+    private fun block(text: String, left: Int, top: Int, right: Int, bottom: Int) =
+        OcrBlock(
+            text = text,
+            box = OcrBox(left, top, right, bottom),
+            lines = listOf(OcrLine(text, OcrBox(left, top, right, bottom))),
+        )
 }

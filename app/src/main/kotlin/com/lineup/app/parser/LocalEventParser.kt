@@ -15,7 +15,9 @@ class LocalEventParser : EventParser {
     private data class Candidate(val index: Int, val line: OcrLine, val text: String)
 
     override fun parse(input: ParseInput): EventDraft {
+        val statusBar = statusBarBottom(input.ocr)
         val candidates = input.ocr.lines
+            .filter { line -> line.box == null || line.box.bottom > statusBar }
             .map { line -> line to TextUtils.normalize(line.text) }
             .filter { it.second.isNotBlank() && !Patterns.looksLikeAppChrome(it.second) }
             .mapIndexed { i, pair -> Candidate(i, pair.first, pair.second) }
@@ -58,6 +60,24 @@ class LocalEventParser : EventParser {
                 location = location?.confidence ?: Confidence.NONE,
             ),
         )
+    }
+
+    /**
+     * The bottom of the system status bar, or 0 when there is not one.
+     *
+     * Every screenshot carries the clock and the battery across the top, and they are
+     * ruinous: the clock reads as the event's time and the indicators as its venue. The
+     * band is only trusted as a status bar when something clock-shaped sits in it, so a
+     * photograph of a poster with text near the top is left alone.
+     */
+    private fun statusBarBottom(ocr: com.lineup.app.ocr.OcrText): Int {
+        if (ocr.imageHeight <= 0) return 0
+        val band = (ocr.imageHeight * STATUS_BAR_FRACTION).toInt()
+        val hasClock = ocr.lines.any { line ->
+            val box = line.box ?: return@any false
+            box.bottom <= band && CLOCK.containsMatchIn(line.text)
+        }
+        return if (hasClock) band else 0
     }
 
     // ---------------------------------------------------------------- title
@@ -136,7 +156,7 @@ class LocalEventParser : EventParser {
         repeat(3) {
             val entry = ranked.firstOrNull { it.key !in excluded && it.value > 0.0 } ?: return null
             val group = mergeWrappedTitle(candidates, entry.key, dateLines, timeLines)
-            val text = group.joinToString(" ") { candidates[it].text }
+            val text = joinHeadline(group.map { candidates[it].text })
             // "RETURNING YDSA MEMBER?" is a hook, not the name of the event.
             if (text.trimEnd().endsWith("?") && it < 2) {
                 excluded += group
@@ -153,6 +173,12 @@ class LocalEventParser : EventParser {
         }
         return null
     }
+
+    /** "KICK-" + "OFF" is one word broken across two lines, not two words. */
+    private fun joinHeadline(parts: List<String>): String =
+        parts.reduceOrNull { acc, part ->
+            if (acc.endsWith("-")) acc + part else "$acc $part"
+        }.orEmpty()
 
     /**
      * Poster titles routinely wrap onto two or three lines. Neighbours are found
@@ -175,6 +201,12 @@ class LocalEventParser : EventParser {
                 .filter { it.index !in group }
                 .filter { continuesHeadline(it, anchor, group, candidates, dateLines, timeLines) }
                 .minByOrNull { it.line.box!!.top }
+                // Rotated sticker layouts put the next word beside the last one rather than
+                // under it - "KICK- / OFF" with "MEETING" alongside.
+                ?: candidates
+                    .filter { it.index !in group }
+                    .filter { sitsBeside(it, anchor, group, candidates, dateLines, timeLines) }
+                    .minByOrNull { it.line.box!!.left }
                 ?: break
             group += next.index
             anchor = next.line.box!!
@@ -230,6 +262,38 @@ class LocalEventParser : EventParser {
         // A gained leading zero means the guess was wrong.
         if (repaired.startsWith("0") && !tail.startsWith("0")) return text
         return "$head $repaired"
+    }
+
+    /**
+     * A headline word set to the right of the previous one: overlapping vertically, similar
+     * size, and close enough horizontally to belong to the same phrase.
+     */
+    private fun sitsBeside(
+        candidate: Candidate,
+        anchor: com.lineup.app.ocr.OcrBox,
+        group: List<Int>,
+        candidates: List<Candidate>,
+        dateLines: Set<Int>,
+        timeLines: Set<Int>,
+    ): Boolean {
+        val box = candidate.line.box ?: return false
+        if (candidate.index in dateLines || candidate.index in timeLines) return false
+        if (isMetadata(candidate.text)) return false
+        if (box.height <= 0 || anchor.height <= 0) return false
+        if (box.left < anchor.left) return false
+
+        val ratio = box.height.toDouble() / anchor.height
+        if (ratio < 0.6 || ratio > 1.7) return false
+
+        val verticalOverlap = minOf(box.bottom, anchor.bottom) - maxOf(box.top, anchor.top)
+        if (verticalOverlap <= 0.35 * minOf(box.height, anchor.height)) return false
+
+        val gap = box.left - anchor.right
+        if (gap < -0.2 * anchor.width || gap > 0.6 * anchor.width) return false
+
+        val words = TextUtils.wordCount(candidate.text) +
+            group.sumOf { TextUtils.wordCount(candidates[it].text) }
+        return words <= MAX_TITLE_WORDS
     }
 
     private fun isMetadata(text: String) =
@@ -387,6 +451,11 @@ class LocalEventParser : EventParser {
 
         /** How far from the date/time a venue may sit before it is just other text. */
         const val FALLBACK_REACH = 3
+
+        /** Android's status bar is about 4% of the screen; 5% leaves a little slack. */
+        const val STATUS_BAR_FRACTION = 0.05
+
+        val CLOCK = Regex("""^\s*\d{1,2}:\d{2}\b""")
 
         const val EXPLICIT_SCORE = 10
         const val VENUE_EVIDENCE_SCORE = 4
