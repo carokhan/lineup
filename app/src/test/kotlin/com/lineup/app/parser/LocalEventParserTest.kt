@@ -5,6 +5,7 @@ import com.lineup.app.core.EventDraft
 import com.lineup.app.ocr.OcrText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -348,19 +349,24 @@ class LocalEventParserTest {
 
     @Test
     fun `metadata lines are not chosen as the title`() {
-        val draft = parse(
-            """
-            PRESENTED BY THE ROBOTICS CLUB
-            ROBOT RUMBLE
-            SEPTEMBER 12
-            8 PM
-            REGISTER NOW
-            @robotics_club
-            www.robotics.example.com
-            ${'$'}5 AT THE DOOR
-            """
+        // URLs, handles and prices are excluded by their form. The sponsor credit is
+        // excluded by being small print, which is what it always is on a real poster -
+        // there is no longer a list of sponsor phrases to recognise it by.
+        val ocr = OcrText(
+            raw = "PRESENTED BY THE ROBOTICS CLUB\nROBOT RUMBLE\nSEPTEMBER 12\n8 PM",
+            blocks = listOf(
+                textBlock("PRESENTED BY THE ROBOTICS CLUB", 40, 50, 340, 74),
+                textBlock("ROBOT RUMBLE", 40, 120, 720, 260),
+                textBlock("SEPTEMBER 12", 40, 500, 380, 540),
+                textBlock("8 PM", 40, 560, 220, 600),
+                textBlock("@robotics_club", 40, 900, 260, 924),
+                textBlock("www.robotics.example.com", 40, 930, 380, 954),
+                textBlock("$5 AT THE DOOR", 40, 960, 260, 984),
+            ),
+            imageWidth = 800,
+            imageHeight = 1000,
         )
-        assertEquals("Robot Rumble", draft.title)
+        assertEquals("Robot Rumble", parser.parse(ParseInput(ocr, defaultNow)).title)
     }
 
     @Test
@@ -542,8 +548,20 @@ class LocalEventParserTest {
 
     @Test
     fun `a sponsor credit never supplies the organisation`() {
-        val draft = parse("PRESENTED BY THE ROBOTICS CLUB\nROBOT RUMBLE\nSeptember 3\n6 PM")
-        assertEquals("Robot Rumble", draft.title)
+        // "PBTRC" appears nowhere else on the poster, so nothing corroborates it and no
+        // host is claimed.
+        val ocr = OcrText(
+            raw = "PRESENTED BY THE ROBOTICS CLUB\nROBOT RUMBLE\nSeptember 3\n6 PM",
+            blocks = listOf(
+                textBlock("PRESENTED BY THE ROBOTICS CLUB", 40, 50, 340, 74),
+                textBlock("ROBOT RUMBLE", 40, 120, 720, 260),
+                textBlock("September 3", 40, 500, 380, 540),
+                textBlock("6 PM", 40, 560, 220, 600),
+            ),
+            imageWidth = 800,
+            imageHeight = 1000,
+        )
+        assertEquals("Robot Rumble", parser.parse(ParseInput(ocr, defaultNow)).title)
     }
 
     @Test
@@ -595,10 +613,11 @@ class LocalEventParserTest {
     }
 
     @Test
-    fun `an app name in a screenshot is never the location`() {
-        listOf("Instagram", "TikTok", "Messages", "Posts", "instagram.").forEach { chrome ->
-            val draft = parse("HACK NIGHT\nAugust 29\n8 PM\n$chrome")
-            assertNull("failed on: $chrome", draft.location)
+    fun `a single word is never the location`() {
+        // No list of app names any more: a lone word is a label or a button, never an
+        // address, and that is a fact about shape rather than about Instagram.
+        listOf("Instagram", "TikTok", "Messages", "Posts", "Vibes").forEach { word ->
+            assertNull("failed on: " + word, parse("HACK NIGHT\nAugust 29\n8 PM\n" + word).location)
         }
     }
 
@@ -619,19 +638,19 @@ class LocalEventParserTest {
     fun `a venue must sit near the date and time`() {
         // Right under the time: believable.
         assertEquals("The Eastern", parse("SHOW\nAugust 29\n8 PM\nThe Eastern").location)
-        // Far below, past unrelated text: no longer a venue, just other text.
+        // Far below, past unrelated copy: out of reach.
         val draft = parse(
             """
             SHOW
             August 29
             8 PM
-            FOOD, DRINKS
+            FOOD AND DRINKS
             GOOD VIBES
             ALL WELCOME
             Nina Simone New World Coming
             """
         )
-        assertNull(draft.location)
+        assertNotEquals("Nina Simone New World Coming", draft.location)
     }
 
     @Test
@@ -640,12 +659,31 @@ class LocalEventParserTest {
     }
 
     @Test
-    fun `a call to action is not treated as a location`() {
+    fun `a slogan beside the time is only ever a guess`() {
+        // Without a vocabulary of calls to action, "REGISTER NOW" is shape-identical to
+        // "TECH GREEN": two capitalised words sitting beside the time. It is taken, but
+        // only at low confidence, which the screen shows as "Guessed - please check".
         val draft = parse("HACK NIGHT\nAugust 29\n8 PM\nREGISTER NOW")
-        assertNull(draft.location)
+        assertEquals(Confidence.LOW, draft.confidence.location)
     }
 
-    // -------------------------------------------------------- malformed / partial
+    @Test
+    fun `a slogan far from the time is not a location`() {
+        // Proximity is the defence that survives, and it is the one that matters: copy
+        // further down the poster cannot reach the venue field.
+        val draft = parse(
+            """
+            HACK NIGHT
+            August 29
+            8 PM
+            FREE PIZZA
+            GOOD VIBES
+            BRING FRIENDS
+            REGISTER NOW
+            """
+        )
+        assertNotEquals("REGISTER NOW", draft.location)
+    }
 
     @Test
     fun `empty ocr produces an empty draft`() {

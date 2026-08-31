@@ -19,7 +19,7 @@ class LocalEventParser : EventParser {
         val candidates = input.ocr.lines
             .filter { line -> line.box == null || line.box.bottom > statusBar }
             .map { line -> line to TextUtils.normalize(line.text) }
-            .filter { it.second.isNotBlank() && !Patterns.looksLikeAppChrome(it.second) }
+            .filter { it.second.isNotBlank() }
             .mapIndexed { i, pair -> Candidate(i, pair.first, pair.second) }
 
         if (candidates.isEmpty()) return EventDraft.EMPTY
@@ -115,8 +115,6 @@ class LocalEventParser : EventParser {
             if (Patterns.looksLikeEmail(text)) score -= 9.0
             if (Patterns.looksLikeHandle(text)) score -= 9.0
             if (Patterns.looksLikePrice(text)) score -= 7.0
-            if (Patterns.looksLikeSponsor(text)) score -= 7.0
-            if (Patterns.looksLikeCallToAction(text)) score -= 7.0
 
             val words = TextUtils.wordCount(text)
             score += when {
@@ -303,13 +301,12 @@ class LocalEventParser : EventParser {
         return words <= MAX_TITLE_WORDS
     }
 
+    /** Text whose *form* says it is not part of the event: a link, an address, a price. */
     private fun isMetadata(text: String) =
         Patterns.looksLikeUrl(text) ||
             Patterns.looksLikeEmail(text) ||
             Patterns.looksLikeHandle(text) ||
-            Patterns.looksLikePrice(text) ||
-            Patterns.looksLikeSponsor(text) ||
-            Patterns.looksLikeCallToAction(text)
+            Patterns.looksLikePrice(text)
 
     /**
      * Turns the raw headline into something worth reading in an agenda, and prefixes the
@@ -413,7 +410,7 @@ class LocalEventParser : EventParser {
         timeLines: Set<Int>,
         titleIndices: Set<Int>,
     ): Scored? {
-        fun disqualified(text: String) = isMetadata(text) || Patterns.isBareAppName(text)
+        fun disqualified(text: String) = isMetadata(text)
 
         val anchors = dateLines + timeLines
         fun nearDateTime(index: Int) =
@@ -436,21 +433,19 @@ class LocalEventParser : EventParser {
 
             fun consider(text: String, atPrefixed: Boolean) {
                 if (disqualified(text)) return
-                val named = Patterns.hasVenueWord(text)
+                if (!Patterns.couldBePlace(text)) return
+                // A room number is self-evident; everything else has to earn it by sitting
+                // with the date and time, which is where posters put the venue.
                 val room = Patterns.ROOM_NUMBER.matches(text)
-                val evidence = named || room
-                // Without a place word or a room number, a line has to both read like a
-                // place and sit with the date and time to count at all.
-                if (!evidence && !(near && Patterns.looksLikePlace(text))) return
+                if (!room && !near) return
 
                 var score = 0
-                if (evidence) score += VENUE_EVIDENCE_SCORE
+                if (room) score += VENUE_EVIDENCE_SCORE
                 if (near) score += PROXIMITY_SCORE
                 if (atPrefixed) score += AT_PREFIX_SCORE
 
                 val confidence = when {
-                    evidence -> Confidence.MEDIUM
-                    atPrefixed -> Confidence.MEDIUM
+                    room || atPrefixed -> Confidence.MEDIUM
                     else -> Confidence.LOW
                 }
                 found += ScoredLocation(candidate.index, repairRoomNumber(text), score, confidence)
