@@ -37,9 +37,10 @@ class LocalEventParser : EventParser {
         val dateLines = dateCandidates.map { it.lineIndex }.toSet()
         val timeLines = times.timeLineIndices
 
-        val headline = pickTitle(candidates, dateLines, timeLines)
+        val organisation = findOrganisation(candidates, dateLines, timeLines)
+        val headline = pickTitle(candidates, dateLines, timeLines, organisation?.lines.orEmpty())
         val title = headline?.let {
-            it.copy(text = composeTitle(candidates, it, dateLines, timeLines))
+            it.copy(text = composeTitle(candidates, it, organisation))
         }
         val location = pickLocation(candidates, dateLines, timeLines, title?.indices.orEmpty())
 
@@ -95,6 +96,7 @@ class LocalEventParser : EventParser {
         candidates: List<Candidate>,
         dateLines: Set<Int>,
         timeLines: Set<Int>,
+        organisationLines: Set<Int>,
     ): Scored? {
         if (candidates.isEmpty()) return null
         val heights = candidates.mapNotNull { it.line.box?.height }.filter { it > 0 }.sorted()
@@ -148,8 +150,9 @@ class LocalEventParser : EventParser {
             if (text.trimEnd().endsWith("?")) score -= 1.5
             // "Kendeda 230" is where the event is, never what it is called.
             if (Patterns.ROOM_NUMBER.matches(text)) score -= 3.0
-            // "Young Democratic Socialists of America" is who is holding it, not what it is.
-            if (Patterns.organisationAcronym(text) != null) score -= 3.0
+            // The host's name, spelled out or abbreviated, is who is holding the event
+            // rather than what it is.
+            if (candidate.index in organisationLines) score -= 3.0
 
             scores[candidate.index] = score
         }
@@ -315,11 +318,10 @@ class LocalEventParser : EventParser {
     private fun composeTitle(
         candidates: List<Candidate>,
         headline: Scored,
-        dateLines: Set<Int>,
-        timeLines: Set<Int>,
+        organisation: Organisation?,
     ): String {
         val organiser = findOrganiser(candidates, headline.indices)
-            ?: findOrganisationAcronym(candidates, headline.indices, dateLines, timeLines)
+            ?: organisation?.acronym
         val name = TextUtils.formatEventName(
             headline.text,
             preserve = organiser?.split(" ")?.filter { it.isNotBlank() }?.toSet().orEmpty(),
@@ -355,24 +357,42 @@ class LocalEventParser : EventParser {
     }
 
     /**
-     * The host's acronym, taken from a spelled-out organisation name on the poster.
+     * The host's acronym, established by the poster showing it twice.
      *
-     * Flyers put the full name in a banner and the acronym in artwork the recogniser often
-     * cannot read - the "YDSA" on this poster is huge letterforms that came back as nothing,
-     * while "Young Democratic Socialists of America" read cleanly.
+     * Flyers set the acronym as artwork and spell it out in a banner. Neither alone is
+     * evidence of anything - plenty of short capitalised lines are not organisations, and
+     * plenty of phrases have initials. Finding both, agreeing, is.
+     *
+     * The two only have to agree loosely: stylised lettering costs characters, and the
+     * "YDSA" on one poster was read as "VDSA". The spelled-out form wins, being the one
+     * a recogniser handles well.
      */
-    private fun findOrganisationAcronym(
+    private fun findOrganisation(
         candidates: List<Candidate>,
-        titleIndices: Set<Int>,
         dateLines: Set<Int>,
         timeLines: Set<Int>,
-    ): String? = candidates.firstNotNullOfOrNull { c ->
-        if (c.index in titleIndices || c.index in dateLines || c.index in timeLines) return@firstNotNullOfOrNull null
-        if (isMetadata(c.text)) return@firstNotNullOfOrNull null
-        Patterns.organisationAcronym(c.text)
+    ): Organisation? {
+        val usable = candidates.filter {
+            it.index !in dateLines && it.index !in timeLines && !isMetadata(it.text)
+        }
+        val acronymLines = usable.filter { Patterns.isAcronymLine(it.text) }
+        if (acronymLines.isEmpty()) return null
+
+        usable.forEach { candidate ->
+            val derived = Patterns.acronymOf(candidate.text) ?: return@forEach
+            val seen = acronymLines.firstOrNull { line ->
+                val text = line.text.trim().trim('.', ',', '!')
+                text.length == derived.length &&
+                    Patterns.editDistance(text, derived) <= ACRONYM_TOLERANCE
+            } ?: return@forEach
+            return Organisation(derived, setOf(candidate.index, seen.index))
+        }
+        return null
     }
 
-    // ------------------------------------------------------------- location
+    private data class Organisation(val acronym: String, val lines: Set<Int>)
+
+    // ------------------------------------------------------------- location    // ------------------------------------------------------------- location
 
     private val explicitPrefix = Regex(
         """^(?:location|where|venue|place|address|loc)\s*[:\-]\s*(.+)$""",
@@ -490,6 +510,9 @@ class LocalEventParser : EventParser {
         const val PROXIMITY_SCORE = 3
         const val AT_PREFIX_SCORE = 2
         const val MAX_LOCATION_WORDS = 8
+
+        /** Stylised lettering costs a character or two, so the two forms agree loosely. */
+        const val ACRONYM_TOLERANCE = 1
 
         const val MAX_TITLE_LINES = 3
         const val MAX_TITLE_WORDS = 12

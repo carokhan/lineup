@@ -55,31 +55,46 @@ internal object Patterns {
     )
 
     /**
-     * Words that name an organising body. Deliberately narrow: "school", "department" and
-     * "students" appear all over flyers in contexts that are not the host's name, e.g. the
-     * "George W. Woodruff School" credit on a careers flyer.
+     * The acronym a phrase would abbreviate to: the initials of its substantial words.
+     * "Young Democratic Socialists of America" -> "YDSA". Short words are skipped, since
+     * nobody puts the "of" in.
+     *
+     * This makes no judgement about whether the phrase names an organisation - that is
+     * established by finding the acronym itself elsewhere on the poster.
      */
-    private val ORGANISATION_WORDS = setOf(
-        "socialists", "society", "association", "club", "union", "chapter", "council",
-        "fraternity", "sorority", "federation", "alliance", "coalition", "guild", "league",
-    )
-
-    /**
-     * The acronym a formal organisation name stands for, when the line clearly is one.
-     * "Young Democratic Socialists of America" -> "YDSA", which is how anyone would
-     * actually refer to it in a calendar.
-     */
-    fun organisationAcronym(text: String): String? {
+    fun acronymOf(text: String): String? {
         val words = text.trim().split(Regex("""\s+""")).filter { it.any(Char::isLetter) }
         if (words.size < 3) return null
-        if (words.none { it.lowercase().trim('.', ',') in ORGANISATION_WORDS }) return null
-
-        // Short words like "of" and "the" are not part of the acronym.
         val initials = words
-            .filter { it.trim('.', ',').length > 2 }
+            .filter { it.trim('.', ',', ':').length > 2 }
             .mapNotNull { word -> word.firstOrNull { it.isLetter() }?.uppercaseChar() }
         if (initials.size !in 3..6) return null
         return initials.joinToString("")
+    }
+
+    /** A line that is nothing but an acronym: "YDSA", "ASME", "GT". */
+    private val ACRONYM_LINE = Regex("""^[A-Z][A-Z0-9]{1,5}$""")
+
+    fun isAcronymLine(text: String): Boolean = ACRONYM_LINE.matches(text.trim().trim('.', ',', '!'))
+
+    /**
+     * Levenshtein distance, for comparing an acronym read off artwork against one derived
+     * from a spelled-out name. Stylised lettering costs a character or two - the "Y" of
+     * "YDSA" came back as a "V" - so the two forms have to agree loosely, not exactly.
+     */
+    fun editDistance(a: String, b: String): Int {
+        if (a == b) return 0
+        var previous = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            val current = IntArray(b.length + 1)
+            current[0] = i
+            for (j in 1..b.length) {
+                val substitution = previous[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1
+                current[j] = minOf(current[j - 1] + 1, previous[j] + 1, substitution)
+            }
+            previous = current
+        }
+        return previous[b.length]
     }
 
     fun isBareAppName(s: String): Boolean = s.trim().trim('.', '!', '?').lowercase() in BARE_APP_NAMES

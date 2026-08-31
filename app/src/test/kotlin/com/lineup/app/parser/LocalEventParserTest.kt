@@ -472,9 +472,10 @@ class LocalEventParserTest {
     }
 
     @Test
-    fun `a spelled out organisation name becomes an acronym prefix`() {
+    fun `an acronym and its spelled out name together identify the host`() {
         val draft = parse(
             """
+            YDSA
             YOUNG DEMOCRATIC SOCIALISTS OF AMERICA
             KICK OFF MEETING
             September 3
@@ -485,14 +486,58 @@ class LocalEventParserTest {
     }
 
     @Test
-    fun `an ordinary phrase is not turned into an acronym`() {
-        // No organisation word, so nothing to derive a host from.
-        assertEquals("Free Pizza Night", parse("FREE PIZZA NIGHT\nSeptember 3\n6 PM").title)
-        // "School" and "students" are too common on flyers to imply the host's name.
-        assertEquals(
-            "Career Fair",
-            parse("George W. Woodruff School\nCAREER FAIR\nSeptember 3\n6 PM").title,
+    fun `the two forms only have to agree loosely`() {
+        // Stylised lettering costs characters: this poster's "Y" was read as a "V".
+        val draft = parse(
+            """
+            VDSA
+            YOUNG DEMOCRATIC SOCIALISTS OF AMERICA
+            KICK OFF MEETING
+            September 3
+            6:30 PM
+            """
         )
+        // The spelled-out form wins, being the one a recogniser handles well.
+        assertEquals("YDSA Kick Off Meeting", draft.title)
+    }
+
+    @Test
+    fun `a spelled out name alone is not enough`() {
+        // No acronym anywhere on the poster, so nothing corroborates that this line names
+        // the host rather than being ordinary text. Laid out as a real poster: the banner
+        // is small print, the headline is large.
+        val ocr = OcrText(
+            raw = "YOUNG DEMOCRATIC SOCIALISTS OF AMERICA\nKICK OFF MEETING\nSeptember 3\n6:30 PM",
+            blocks = listOf(
+                textBlock("YOUNG DEMOCRATIC SOCIALISTS OF AMERICA", 40, 60, 760, 82),
+                textBlock("KICK OFF MEETING", 60, 200, 720, 320),
+                textBlock("September 3", 60, 500, 380, 540),
+                textBlock("6:30 PM", 60, 560, 260, 600),
+            ),
+            imageWidth = 800,
+            imageHeight = 1000,
+        )
+        val draft = parser.parse(ParseInput(ocr, defaultNow))
+        assertEquals("Kick Off Meeting", draft.title)
+    }
+
+    @Test
+    fun `an unrelated acronym does not attach itself to a phrase`() {
+        // "ASME" abbreviates to nothing on this flyer: "George W Woodruff School" gives
+        // "GWS". Laid out as a real flyer, with the credits in small print.
+        val ocr = OcrText(
+            raw = "ASME\nGeorge W Woodruff School\nCAREER FAIR\nSeptember 3\n6 PM",
+            blocks = listOf(
+                textBlock("ASME", 40, 50, 120, 74),
+                textBlock("George W Woodruff School", 40, 80, 300, 102),
+                textBlock("CAREER FAIR", 60, 200, 720, 320),
+                textBlock("September 3", 60, 500, 380, 540),
+                textBlock("6 PM", 60, 560, 220, 600),
+            ),
+            imageWidth = 800,
+            imageHeight = 1000,
+        )
+        assertEquals("Career Fair", parser.parse(ParseInput(ocr, defaultNow)).title)
     }
 
     @Test
@@ -645,6 +690,18 @@ class LocalEventParserTest {
         assertTrue(draft.confidence.overall.needsReview)
         assertNotNull(draft.title)
     }
+
+    private fun textBlock(text: String, left: Int, top: Int, right: Int, bottom: Int) =
+        com.lineup.app.ocr.OcrBlock(
+            text = text,
+            box = com.lineup.app.ocr.OcrBox(left, top, right, bottom),
+            lines = listOf(
+                com.lineup.app.ocr.OcrLine(
+                    text,
+                    com.lineup.app.ocr.OcrBox(left, top, right, bottom),
+                )
+            ),
+        )
 
     private fun block(text: String, left: Int, top: Int, right: Int, bottom: Int) =
         com.lineup.app.ocr.OcrBlock(

@@ -1,5 +1,6 @@
 package com.lineup.app.parser
 
+import com.lineup.app.ai.PosterPrompt
 import com.lineup.app.core.Confidence
 import com.lineup.app.ocr.OcrBlock
 import com.lineup.app.ocr.OcrBox
@@ -108,9 +109,10 @@ class RealPosterTest {
         assertEquals(LocalTime.of(18, 30), draft.startTime)
         assertEquals("GATECH KLAUS 1456", draft.location)
         assertEquals(LocalDate.of(2026, 9, 3), draft.date)
-        // "Kick-off Meeting" alone is ambiguous. The huge "YDSA" letterforms were not
-        // recognised at all, but the banner spelling it out was, so the acronym is derived.
-        assertEquals("YDSA Kick-off Meeting", draft.title)
+        // The huge "YDSA" letterforms defeat the recogniser entirely, so nothing
+        // corroborates the banner and no host is claimed. See the Gemini Nano reading
+        // below, which does get them.
+        assertEquals("Kick-off Meeting", draft.title)
     }
 
     /** Without a clock in it, the top of the image is just the top of the image. */
@@ -138,4 +140,31 @@ class RealPosterTest {
             box = OcrBox(left, top, right, bottom),
             lines = listOf(OcrLine(text, OcrBox(left, top, right, bottom))),
         )
+
+    /**
+     * Gemini Nano's reading of the same flyer, captured from a Pixel 9. It gets the giant
+     * letterforms that ML Kit cannot see at all - as "VDSA", misreading the stylised Y -
+     * which is enough to corroborate the banner and name the host.
+     */
+    @Test
+    fun `the model reads the letterforms ocr cannot`() {
+        val transcript = PosterPrompt.cleanTranscription(
+            """
+            VDSA
+            YOUNG DEMOCRATIC SOCIALISTS OF AMERICA
+
+            KICK-OFF MEETING
+
+            6:30 PM
+            SEPTEMBER 3RD
+            GATECH KLAUS 1456
+            """.trimIndent()
+        )!!
+        val draft = parser.parse(ParseInput(transcript, now))
+
+        assertEquals("YDSA Kick-off Meeting", draft.title)
+        assertEquals(LocalDate.of(2026, 9, 3), draft.date)
+        assertEquals(LocalTime.of(18, 30), draft.startTime)
+        assertEquals("GATECH KLAUS 1456", draft.location)
+    }
 }
