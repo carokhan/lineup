@@ -467,10 +467,18 @@ private fun RecentEventsSection(viewModel: ShareViewModel) {
     LaunchedEffect(hasPermission) { viewModel.refreshHistory() }
 
     val history = viewModel.history
-    if (history.isEmpty()) return
 
     Spacer(Modifier.size(8.dp))
     Text("Recently added", style = MaterialTheme.typography.titleSmall)
+
+    if (history.isEmpty()) {
+        Text(
+            "Events you add will be listed here, so you can check one really landed.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
 
     history.forEach { entry ->
         val event = entry.event
@@ -544,8 +552,8 @@ private fun IdleBody() {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Share a poster or screenshot to Lineup", style = MaterialTheme.typography.bodyLarge)
         Text(
-            "Open any image, tap Share, and pick Lineup. The event details are read on your " +
-                "device and handed to your calendar app.",
+            "Open any image, tap Share, and pick Lineup. The details are read on your device, " +
+                "and you confirm once before it saves to the calendar you choose.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
