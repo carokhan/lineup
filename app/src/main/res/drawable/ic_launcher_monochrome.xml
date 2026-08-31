@@ -1,0 +1,29 @@
+<!--
+  Themed-icon layer. One colour only, so the layering has to come from holes in the
+  silhouette rather than from tints.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.92"
+        android:scaleY="0.92">
+        <group
+            android:pivotX="54"
+            android:pivotY="54"
+            android:rotation="-13">
+            <path
+                android:fillAlpha="0.45"
+                android:fillColor="#000000"
+                android:pathData="M35,29h38a6,6 0 0 1 6,6v38a6,6 0 0 1 -6,6h-38a6,6 0 0 1 -6,-6v-38a6,6 0 0 1 6,-6z" />
+        </group>
+        <path
+            android:fillColor="#000000"
+            android:fillType="evenOdd"
+            android:pathData="M35,31h38a6,6 0 0 1 6,6v40a6,6 0 0 1 -6,6h-38a6,6 0 0 1 -6,-6v-40a6,6 0 0 1 6,-6zM39,53.8a3.2,3.2 0 1,0 0,6.4a3.2,3.2 0 1,0 0,-6.4zM47.5,54h22a3,3 0 0 1 0,6h-22a3,3 0 0 1 0,-6zM39,66.8a3.2,3.2 0 1,0 0,6.4a3.2,3.2 0 1,0 0,-6.4zM47.5,67h15a3,3 0 0 1 0,6h-15a3,3 0 0 1 0,-6z" />
+    </group>
+</vector>

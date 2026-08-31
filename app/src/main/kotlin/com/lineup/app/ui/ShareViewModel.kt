@@ -11,6 +11,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.lineup.app.ai.GeminiNanoTranscriber
 import com.lineup.app.calendar.CalendarWriter
+import com.lineup.app.calendar.SavedEventStore
+import com.lineup.app.core.SavedEvent
 import com.lineup.app.ai.PosterTranscriber
 import com.lineup.app.core.Confidence
 import com.lineup.app.core.EventDraft
@@ -323,11 +325,47 @@ class ShareViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveToCalendar(): CalendarWriter.Outcome =
         CalendarWriter.insert(getApplication(), form.toDraft(), zone, selectedCalendarId)
-            .also { if (it.result == CalendarWriter.Result.SAVED) saved = it }
+            .also { outcome ->
+                if (outcome.result != CalendarWriter.Result.SAVED) return@also
+                saved = outcome
+                outcome.eventId?.let { id ->
+                    savedEvents.add(
+                        SavedEvent(
+                            eventId = id,
+                            title = form.title.ifBlank { "Untitled event" },
+                            startMillis = form.date?.let { date ->
+                                date.atTime(form.startTime ?: java.time.LocalTime.MIDNIGHT)
+                                    .atZone(zone).toInstant().toEpochMilli()
+                            },
+                            calendarName = outcome.calendarName.orEmpty(),
+                            savedAtMillis = System.currentTimeMillis(),
+                        )
+                    )
+                }
+            }
 
     /** Set once the event is really in the calendar, so the screen can say so. */
     var saved by mutableStateOf<CalendarWriter.Outcome?>(null)
         private set
+
+    /** Recently created events, each with whether it is still really in the calendar. */
+    var history by mutableStateOf<List<HistoryEntry>>(emptyList())
+        private set
+
+    data class HistoryEntry(val event: SavedEvent, val stillInCalendar: Boolean?)
+
+    private val savedEvents by lazy { SavedEventStore(getApplication()) }
+
+    /**
+     * Re-checks each remembered event against the calendar provider, so an entry that never
+     * really landed shows up as missing rather than silently looking fine.
+     */
+    fun refreshHistory() {
+        val context = getApplication<Application>()
+        history = savedEvents.recent().map { event ->
+            HistoryEntry(event, CalendarWriter.stillExists(context, event.eventId))
+        }
+    }
 
     private val prefs by lazy {
         getApplication<Application>().getSharedPreferences("lineup", android.content.Context.MODE_PRIVATE)

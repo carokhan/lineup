@@ -1,6 +1,7 @@
 package com.lineup.app.calendar
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
@@ -91,6 +92,28 @@ object CalendarWriter {
             Outcome(Result.NO_PERMISSION)
         } catch (_: Exception) {
             Outcome(Result.FAILED)
+        }
+    }
+
+    /**
+     * Whether an event this app created is still really in the provider. Null means we
+     * cannot tell (no permission), which is not the same as "it is gone".
+     */
+    fun stillExists(context: Context, eventId: Long): Boolean? {
+        if (!hasPermission(context)) return null
+        return try {
+            val cursor = context.contentResolver.query(
+                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                arrayOf(CalendarContract.Events._ID, CalendarContract.Events.DELETED),
+                null,
+                null,
+                null,
+            ) ?: return null
+            cursor.use { it.moveToFirst() && it.getInt(1) == 0 }
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
         }
     }
 

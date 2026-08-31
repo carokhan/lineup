@@ -1,15 +1,59 @@
+<!--
+  A poster becoming an agenda entry: a tilted flyer behind, an event card in front.
+
+  The back sheet is mint rather than white so it reads as a separate layer against both the
+  white card in front and the green field behind - two white shapes just merged into one.
+
+  Adaptive icon foreground: the mark is centred on the 108dp canvas and sits inside the
+  central 66dp safe zone, so no launcher mask can clip it.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M36,30h4v6h-4z M68,30h4v6h-4z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M32,36h44a6,6 0 0 1 6,6v34a6,6 0 0 1 -6,6h-44a6,6 0 0 1 -6,-6v-34a6,6 0 0 1 6,-6zM32,42v6h44v-6z" />
-    <path
-        android:fillColor="#1F6E5A"
-        android:pathData="M40,60h10v6h-10z M58,60h10v6h-10z M40,70h10v6h-10z M58,70h10v6h-10z" />
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.92"
+        android:scaleY="0.92">
+
+        <!-- The poster, tilted, showing behind the card. -->
+        <group
+            android:pivotX="54"
+            android:pivotY="54"
+            android:rotation="-13">
+            <path
+                android:fillColor="#7FD8BF"
+                android:pathData="M35,29h38a6,6 0 0 1 6,6v38a6,6 0 0 1 -6,6h-38a6,6 0 0 1 -6,-6v-38a6,6 0 0 1 6,-6z" />
+        </group>
+
+        <!-- The event card. -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M35,31h38a6,6 0 0 1 6,6v40a6,6 0 0 1 -6,6h-38a6,6 0 0 1 -6,-6v-40a6,6 0 0 1 6,-6z" />
+
+        <!-- Date band across the top. -->
+        <path
+            android:fillColor="#14513F"
+            android:pathData="M29,37a6,6 0 0 1 6,-6h38a6,6 0 0 1 6,6v8h-50z" />
+
+        <!-- Two agenda rows: a time marker and the entry beside it. -->
+        <path
+            android:fillColor="#1F6E5A"
+            android:pathData="M39,57m-3.2,0a3.2,3.2 0 1,0 6.4,0a3.2,3.2 0 1,0 -6.4,0" />
+        <path
+            android:fillColor="#1F6E5A"
+            android:pathData="M47.5,54h22a3,3 0 0 1 0,6h-22a3,3 0 0 1 0,-6z" />
+
+        <path
+            android:fillAlpha="0.4"
+            android:fillColor="#1F6E5A"
+            android:pathData="M39,70m-3.2,0a3.2,3.2 0 1,0 6.4,0a3.2,3.2 0 1,0 -6.4,0" />
+        <path
+            android:fillAlpha="0.4"
+            android:fillColor="#1F6E5A"
+            android:pathData="M47.5,67h15a3,3 0 0 1 0,6h-15a3,3 0 0 1 0,-6z" />
+    </group>
 </vector>

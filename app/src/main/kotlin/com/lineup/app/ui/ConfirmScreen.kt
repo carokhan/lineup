@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import android.content.ContentUris
 import android.content.Intent
+import android.widget.Toast
 import android.provider.CalendarContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -75,6 +76,7 @@ import java.time.format.DateTimeFormatter
 
 private val DATE_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
 private val TIME_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+private val HISTORY_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE, MMM d · h:mm a")
 
 @Composable
 fun ConfirmScreen(
@@ -102,7 +104,10 @@ fun ConfirmScreen(
             Header(onClose = onClose)
 
             when (state) {
-                is ShareUiState.Idle -> IdleBody()
+                is ShareUiState.Idle -> {
+                    IdleBody()
+                    RecentEventsSection(viewModel)
+                }
                 is ShareUiState.Working -> WorkingBody(viewModel)
                 is ShareUiState.Failed -> FailedBody(
                     message = state.message,
@@ -446,6 +451,90 @@ private fun Header(onClose: () -> Unit) {
         )
         IconButton(onClick = onClose) {
             Icon(Icons.Default.Close, contentDescription = "Close")
+        }
+    }
+}
+
+/**
+ * The events this app has created, with whether each is really in the calendar. This is the
+ * answer to "did that one actually save?" - tap through to the event rather than hunting
+ * for it in a calendar app.
+ */
+@Composable
+private fun RecentEventsSection(viewModel: ShareViewModel) {
+    val context = LocalContext.current
+    val hasPermission = CalendarWriter.hasPermission(context)
+    LaunchedEffect(hasPermission) { viewModel.refreshHistory() }
+
+    val history = viewModel.history
+    if (history.isEmpty()) return
+
+    Spacer(Modifier.size(8.dp))
+    Text("Recently added", style = MaterialTheme.typography.titleSmall)
+
+    history.forEach { entry ->
+        val event = entry.event
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val uri = ContentUris.withAppendedId(
+                        CalendarContract.Events.CONTENT_URI,
+                        event.eventId,
+                    )
+                    val opened = runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW).setData(uri))
+                    }.isSuccess
+                    if (!opened) {
+                        Toast.makeText(context, "Couldn't open that event.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = if (entry.stillInCalendar == false) Icons.Default.Warning else Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = if (entry.stillInCalendar == false) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    event.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    buildString {
+                        event.startMillis?.let {
+                            append(
+                                java.time.Instant.ofEpochMilli(it)
+                                    .atZone(java.time.ZoneId.systemDefault())
+                                    .format(HISTORY_LABEL)
+                            )
+                        }
+                        if (event.calendarName.isNotBlank()) {
+                            if (isNotEmpty()) append(" · ")
+                            append(event.calendarName)
+                        }
+                        when (entry.stillInCalendar) {
+                            false -> append(" · not in calendar")
+                            null -> append(" · unverified")
+                            else -> Unit
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
